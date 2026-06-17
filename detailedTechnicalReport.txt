@@ -1,0 +1,111 @@
+Phase 1: Core Architecture & The Real-Time Engine
+In this phase, the objective was to build a system capable of handling 50+ concurrent connections, managing live state across all of them without a dedicated backend server, and ensuring players could securely log in and see their team data.
+
+1. The Tech Stack Selection
+In an interview, if they ask why you didn't use React or Node.js, your answer is about efficiency and latency.
+
+Frontend: Pure Vanilla HTML5, CSS3, and modern JavaScript (ES6 Modules). By skipping heavy frontend frameworks, you eliminated build times and client-side rendering overhead, keeping the app lightning-fast even on weak mobile connections.
+
+Backend: Google Firebase Firestore. This is a BaaS (Backend-as-a-Service). You chose Firestore specifically because it uses WebSockets to push data to the client instantly, rather than forcing the client to constantly ask the server, "Are there new points?" (HTTP Polling).
+
+Environment: Windows Subsystem for Linux (WSL2) with VS Code Live Server.
+
+2. ES6 Module Architecture (Separation of Concerns)
+Instead of writing one massive, unreadable JavaScript file, the project was architected using ES6 Modules (type="module" in the HTML).
+
+config.js: Acts as the single source of truth for routing games.
+
+auth.js: Handles session state and UI gating.
+
+db.js: The exclusive bridge to Firebase. No other file is allowed to talk to the database directly.
+
+main.js: The frontend controller that updates the DOM (Document Object Model) based on database triggers.
+
+Interview flex: This structure demonstrates the Single Responsibility Principle. If the database breaks, you only check db.js.
+
+3. The Authentication Gateway (auth.js)
+You needed a way to identify players without forcing them to create actual accounts with passwords.
+
+Implementation: A pseudo-auth system utilizing the browser's localStorage.
+
+Logic: When a user selects their Triad and enters an alias, the script packages that into a JSON object and saves it to the local browser memory.
+
+Benefit: If a user accidentally refreshes the page or closes the tab on their phone, auth.js intercepts the load, checks localStorage, and instantly bypasses the login gate, keeping them in the game seamlessly.
+
+4. The Real-Time Event Listener (db.js)
+This is the heart of the application. You utilized Firestore's onSnapshot method.
+Instead of writing a function to "fetch" the leaderboard, onSnapshot opens a persistent, two-way WebSocket connection. The moment the Admin clicks "Deploy," or points are injected into the cloud, Firebase blasts that update down the socket, and your main.js script dynamically rebuilds the HTML leaderboard in milliseconds.
+
+The Roadblocks & Engineering Solutions (Interview Goldmine)
+Interviewers love hearing about things breaking. Here are the two major technical hurdles from Phase 1 and how they were solved.
+
+Critical Failure 1: The ES6 Strict Mode Crash
+
+The Bug: The entire site silently failed to load its logic. Buttons wouldn't click, and no errors popped up in the UI.
+
+The Cause: You placed a debugging console.log at the very top of db.js. Because the script was defined as a type="module", the JavaScript engine runs in "Strict Mode." Strict Mode mandates that all import statements must be the absolute first execution lines in the file.
+
+The Fix: Moving the imports to line 1. It taught you how unforgiving modern JS compilation can be compared to older script tags.
+
+Critical Failure 2: The WSL2 WebSocket Blockade
+
+The Bug: Firebase absolutely refused to connect. It wouldn't read or write data, but it didn't throw a standard offline error either.
+
+The Cause: You were running your local server through the Linux Subsystem (WSL2) on a Windows machine. WSL2 has a highly restrictive virtual network bridge. Firestore attempts to open a persistent TCP WebSocket for real-time data. The WSL2 firewall silently swallowed these WebSocket packets, causing the app to hang infinitely while waiting for a handshake.
+
+The Solution: You engineered a bypass by injecting { experimentalForceLongPolling: true } into the Firebase initialization.
+
+Why it worked: Long Polling forces Firebase to abandon the blocked WebSocket protocol. Instead, it holds open a standard HTTP request for as long as possible until the server replies. HTTP traffic easily bypasses the WSL2 virtual network restrictions.
+Phase 2: The Iframe Engine, Degrading Timers, and the State Machine
+In this phase, the objective was to dynamically load different games into the dashboard without ever refreshing the page. If the page refreshes, the WebSocket connection to Firebase drops and has to be re-established, which causes lag.
+
+1. The Iframe Sandbox Architecture
+To keep the main dashboard static while the games rotated, you built an Iframe Engine.
+
+The Logic: The index.html holds the header, the leaderboard, and an empty <iframe id="game-frame">. When the Admin deploys a round, config.js routes the specific game file (like games/round1/quiz.html) directly into that iframe.
+
+The SDE Flex: This is a perfect example of Component Isolation. If Round 2's code completely crashes, it only crashes inside the iframe. The main dashboard and the global leaderboard listener remain 100% operational.
+
+2. Cross-Window Communication (The postMessage API)
+Because the game runs inside an iframe, it is functionally a separate webpage. It doesn't have direct access to the updatePlayerScore function sitting in the parent window's main.js.
+
+The Solution: You implemented the window.parent.postMessage() API.
+
+How it works: When a player gets a correct answer in Round 1, the iframe packages a data object { type: 'PHANTOM_SCORE_UPDATE', score: 8 } and fires it up to the parent window. The parent window has a dedicated addEventListener('message') that catches this payload and securely writes the score to Firebase.
+
+3. Round 1: The Degrading Timer Engine
+Round 1 wasn't a standard quiz; it featured a dynamic, degrading score mechanic.
+
+The Logic: You initialized a setInterval loop running every 100 milliseconds (0.1s).
+
+The Math: currentPoints = Math.max(0, Math.ceil(timeRemaining));
+
+Why this is smart: By using Math.ceil, you didn't have to write complex if/else statements for the score. At 9.8 seconds, Math.ceil(9.8) automatically equals 10 points. At 8.1 seconds, it equals 9 points. This kept the browser's CPU usage incredibly low during rapid DOM updates.
+
+4. The Admin State Machine (Lock/Unlock Protocol)
+You needed absolute control over when 50+ participants started playing to ensure fairness.
+
+The Logic: You created a gameState document in the admin Firebase collection containing a gameActive: false boolean.
+
+The Execution: Inside the iframe, you initialized a secondary, lightweight Firebase listener. The "Initiate Sequence" button starts fully disabled. When you click "Unlock Play Button" on the Admin Dashboard, Firebase flips that boolean to true, instantly broadcasting to all 50 laptops and illuminating the button in neon green.
+
+The Roadblocks & Engineering Solutions
+Here are the technical hurdles from Phase 2 to highlight in an interview:
+
+Critical Failure 1: The HTML Parsing Sabotage
+
+The Bug: During the initial setup of the iframe rendering, the layout completely broke.
+
+The Cause: A copy-paste error caused the </body> and </html> closing tags to be injected directly inside the <head> tag of index.html. Browsers try to "auto-fix" broken HTML, which resulted in the browser prematurely closing the document structure and rendering the iframe outside of the intended CSS containers.
+
+The Solution: A thorough DOM (Document Object Model) audit. You had to manually trace the node tree, strip the corrupted tags from the head, and properly close the document. This proves your understanding of how the browser's rendering engine actually parses HTML.
+
+Critical Failure 2: Silent Button Failures in the Admin Panel
+
+The Bug: When clicking the "Deploy" or "Unlock" buttons on the Admin panel, nothing would happen. No round would deploy, and no error appeared on the screen.
+
+The Cause: Network latency or temporary Firebase disconnects were causing the asynchronous await setDoc() functions to hang. Because there was no error handling, the script just died silently.
+
+The Solution: You wrapped every Admin function in try...catch blocks and wired the catch directly to the Admin UI. If Firebase failed to write the state, the UI immediately displayed [ERROR]: DEPLOY FAILED in red.
+
+The Takeaway: This shows an interviewer that you build "defensive code." You don't just assume the database will always work; you build UI fallbacks for when it inevitably fails.
