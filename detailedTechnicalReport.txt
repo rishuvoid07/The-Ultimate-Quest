@@ -212,3 +212,9 @@ The Scenario: Pushing code from a Linux Subsystem (WSL2) to GitHub for the first
 The Cause: GitHub deprecated standard password authentication for terminal operations to prevent brute-force attacks, requiring token-based access. Furthermore, WSL terminals hide input streams during password pasting, leading to user confusion and duplicate command errors (the command not found loop).
 
 The Solution: You navigated the transition from password auth to Personal Access Tokens (PATs) and configured the Git credential manager (git config --global credential.helper store) within the Linux subsystem. This shows a deep understanding of terminal security protocols and environment configuration.
+Changes made in the website based on suggestions given during Dry Run:
+A. Round 1
+  Updated the content and removed the previous content.
+  Could NOT implement the Average points rule for each team (Not possible)
+B. Round 2
+ 
